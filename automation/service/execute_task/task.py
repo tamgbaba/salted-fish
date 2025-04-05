@@ -1,4 +1,3 @@
-
 import json
 import time
 from abc import abstractmethod, ABC
@@ -8,10 +7,12 @@ from concurrent.futures import ThreadPoolExecutor
 from selenium.webdriver.chrome.webdriver import WebDriver
 from requests import Session
 from automation.service.execute_task.request_config import RequestConfig
-import asyncio
+from automation.utool.sokcet_connect import Ipv6Connect
+
+
 class XyTask:
 
-    def __init__(self, max_workers=20):
+    def __init__(self, max_workers=15):
         """
         初始化线程池
         :param max_workers: 最大并发线程数
@@ -19,7 +20,7 @@ class XyTask:
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.futures = []  # 用于存储任务的 Future 对象
 
-    def submit_task(self, func, data, secKillStart,title:str) -> Future:
+    def submit_task(self, func, data, secKillStart, title: str) -> Future:
         """
         提交任务到线程池
         :param func: 任务函数
@@ -27,7 +28,7 @@ class XyTask:
         :param kwargs: 任务函数的关键字参数
         :return: Future 对象（可用于获取任务执行结果）
         """
-        future = self.executor.submit(func, data, secKillStart,title)
+        future = self.executor.submit(func, data, secKillStart, title)
         # self.futures.append(future)
         return future
 
@@ -50,7 +51,6 @@ class XyTask:
         self.executor.shutdown(wait=True)
 
 
-
 # 定义接口规范
 class XyApi(ABC):  # 定义接口（抽象基类）
     __appKey: str = '34839810'
@@ -64,7 +64,7 @@ class XyApi(ABC):  # 定义接口（抽象基类）
         pass
 
     def __init__(self, rConfig: RequestConfig):
-        with open("./config.json", "r", encoding="utf-8") as file:
+        with open("./../../config/config.json", "r", encoding="utf-8") as file:
             config = json.load(file)
         self.headers = config['headers']
         self.headers['sec-ch-ua'] = '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"'
@@ -80,7 +80,7 @@ class SecKillApi(XyApi):
 
     def __init__(self, rConfig: RequestConfig):
         super().__init__(rConfig)
-        with open("./config.json", "r", encoding="utf-8") as file:
+        with open("./../../config/config.json", "r", encoding="utf-8") as file:
             config = json.load(file)
         self.apiConfig = config['apiConfig']['secKillConfig']
         self.session = Session()
@@ -131,55 +131,48 @@ class SecKillApi(XyApi):
                 r_data: dict = response.json().get('data')
                 if r_data.get('commonData'):
                     r_commonData: dict = r_data.get('commonData')
-                    secKillStart: int = int(r_commonData.get('secKillStart'))
-                    r_params_data: dict = r_commonData.get('itemBuyInfo')[0]
-                    if secKillStart - (time.time_ns() // 1_000_000) > (3600000 // 2):
-                        print(
-                            f'商品{e}  还有{(secKillStart - (time.time_ns() // 1_000_000)) / (1000 * 60 * 60)}小时后 ...\n')
-                        continue
+                    if r_commonData.get('secKillStart'):
+                        secKillStart: int = int(r_commonData.get('secKillStart'))
+                        r_params_data: dict = r_commonData.get('itemBuyInfo')[0]
+                        if secKillStart - (time.time_ns() // 1_000_000) > (3600000 // 2):
+                            print(
+                                f'商品{e}  还有{(secKillStart - (time.time_ns() // 1_000_000)) / (1000 * 60 * 60)}小时后 ...\n')
+                            continue
+                        self.task.submit_task(func=self.startTask, data=r_params_data, secKillStart=secKillStart,
+                                              title=e.get('title'))
 
-                    self.task.submit_task(func=self.startTask, data=r_params_data, secKillStart=secKillStart,title=e.get('title'))
-
-    def startTask(self, data: dict, secKillStart: int,title:str):
+    def startTask(self, data: dict, secKillStart: int, title: str):
         id = data.get('itemId')
-        latency_time = 30
-        session = Session()
-        session.headers.update(self.headers)
-        session.cookies.update(self.rConfig.cookies)
+        latency_time = 15
+        ipv6 = Ipv6Connect()
         data = {"data": json.dumps({"params": [data]})}
-
+        cookies = self.rConfig.cookies
+        params = self.apiConfig['params']
+        api = '/h5/mtop.taobao.idle.trade.order.create/5.0/'
         while True:
             # 当前秒级时间戳
-            await_time = secKillStart -(time.time_ns() // 1_000_000)
+            await_time = secKillStart - (time.time_ns() // 1_000_000)
             # 是否在开始范围内
             start_scope = (await_time / 1000 <= latency_time and await_time > 0)
             # 是否在结束范围内
             end_scope = (await_time < 0 and await_time / 1000 >= -latency_time)
-
+            # 抢购但是不读取返回值，值发送请求
             if start_scope or end_scope:
-            # if True:
-                start_time  =time.time()
-                params = self.rConfig.createRequestParams(params=self.apiConfig['params'], data=data)
-                result =session.post(self.apiConfig.get('api'), params=params, data=data).json()
-                end_time  =time.time()
-                print(f'商品title：{title}-{id}-请求耗时：{start_time - end_time}秒-{result}')
-            elif ((await_time / 1000) > (latency_time * 1.5)):
-                print(f'{title}-{id}  休眠{latency_time}秒后 重新进入抢购...\n')
-                time.sleep(latency_time)
-            # elif ((await_time/1000) > (latency_time -10)):
-            #     # 需要等待多少秒
-            #     latency_time = (await_time /1000) -latency_time
-            #     print(f'{title}-{id}还需等待{latency_time //60}分钟后 抢购中....\n')
-            #     time.sleep(latency_time)
+                start_time = time.perf_counter()
+                ipv6.sent_seckill_request(api=api, cookies=cookies, params=params, data=data)
+                end_time = time.perf_counter()
+                print(f'商品title：{title}-{id}-请求耗时：{start_time - end_time}秒')
             elif (await_time < 0 and await_time / 1000 < -latency_time):
                 print("抢购结束")
                 break
+
+
 class CollectApi(XyApi):
     apiConfig: dict
 
     def __init__(self, rConfig: RequestConfig):
         super().__init__(rConfig)
-        with open("./config.json", "r", encoding="utf-8") as file:
+        with open("./../../config/config.json", "r", encoding="utf-8") as file:
             configApi = json.load(file)
         self.apiConfig = configApi['apiConfig']['collectConfig']
         self.session = Session()

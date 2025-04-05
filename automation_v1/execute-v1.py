@@ -4,8 +4,8 @@ from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from automation.port.manage import Manage
-from automation.request_config import RequestConfig
+from automation_v1.port.manage import Manage
+from automation_v1.request_config import RequestConfig
 
 chrome_options = Options()
 # 设置用户数据目录
