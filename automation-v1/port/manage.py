@@ -2,8 +2,8 @@ import time
 
 from selenium.webdriver.chrome.webdriver import WebDriver
 
-from automation.service.execute_task.request_config import RequestConfig
-from automation.service.execute_task.task import CollectApi, SecKillApi
+from automation.request_config import RequestConfig
+from automation.port import CollectApi, SecKillApi
 
 
 class Manage:
@@ -33,5 +33,4 @@ class Manage:
             ]
         secKill: SecKillApi = self.handlers.get('secKillApi')
         if filtered_task_list:
-            # 进行日期排序
-            secKill.sent(sorted(filtered_task_list,key=lambda x:x['title']),driver=driver)
+            secKill.sent(filtered_task_list,driver=driver)

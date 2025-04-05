@@ -3,7 +3,7 @@ import time
 import pickle
 
 
-import execjs
+# import execjs
 
 
 class RequestConfig:
@@ -68,12 +68,12 @@ class RequestConfig:
         driver.refresh()  # 刷新页面应用Cookies
 
     # 创建签名
-    @staticmethod
-    def createSign(data: str) -> str:
-        with open(file="./js/xianyu.js", encoding="utf-8") as fp:
-            js_code = fp.read()
-            ctx = execjs.compile(js_code)
-        return ctx.call("i", data)
+    # @staticmethod
+    # def createSign(data: str) -> str:
+    #     with open(file="./js/xianyu.js", encoding="utf-8") as fp:
+    #         js_code = fp.read()
+    #         ctx = execjs.compile(js_code)
+    #     return ctx.call("i", data)
 
     class CustomMD5:
         @staticmethod
