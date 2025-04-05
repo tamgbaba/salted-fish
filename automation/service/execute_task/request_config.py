@@ -53,11 +53,11 @@ class RequestConfig:
             self.cache_cookies(driver=driver)
 
     # 缓存cookies避免下次程序重启需要重新登录
-    def cache_cookies(self, driver, file_path: str = './cache/cookies.pkl'):
+    def cache_cookies(self, driver, file_path: str = './../../cache/cookies.pkl'):
         with open(file_path, 'wb') as file:
             pickle.dump(driver.get_cookies(), file)
 
-    def load_cookies(self, driver, file_path: str = './cache/cookies.pkl'):
+    def load_cookies(self, driver, file_path: str = './../../cache/cookies.pkl'):
         with open(file_path, 'rb') as file:
             try:
                 cookies = pickle.load(file)

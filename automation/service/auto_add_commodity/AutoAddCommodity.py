@@ -148,7 +148,7 @@ class AutoAddCommodity:
             self.isLogin(driver)
             try:
                 WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.XPATH, '//div[contains(text(), "充满鲜花的世界到底在哪里")]')))
+                    EC.presence_of_element_located((By.XPATH, '//div[contains(text(), "一只九尾猫")]')))
                 print("已经登录")
                 self.initCookie(driver=driver)
             except:

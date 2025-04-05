@@ -31,6 +31,14 @@ class Connect:
     def dict_to_cookie_string(self, cookie_dict: dict):
         return '; '.join(f"{key}={value}" for key, value in cookie_dict.items()) + ';'
 
+    def heartbeat_monitor(self, sock):
+        # 发送心跳数据（示例：HTTP HEAD 请求）
+        print("发送心跳数据")
+        request = b"HEAD / HTTP/1.1\r\nHost: h5api.m.goofish.com\r\n\r\n"
+        sock.send(request)
+        response = sock.recv(1024)
+        print(f'心跳响应：{response}')
+
     def createRequestParams(self, cookies: dict, params: dict, data: dict,
                             timestamp: str = str(round(time.time() * 1000))) -> dict:
         params['sign'] = CustomMD5.md5(
@@ -48,15 +56,18 @@ class Ipv6Connect(Connect):
     _TARGET_IPV6: list = ['2408:4001:f00::198', '2408:4001:f00::b9']
 
     def __init__(self, ip_index: int = 0):
+        print("创建ipv6 socket 连接中......")
         # 1. 创建 IPv6 TCP Socket
         sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
         # 2. 连接目标服务器
+        sock.settimeout(15)
         sock.connect((self._TARGET_IPV6[ip_index], self._PORT, 0, 0))
         # 3. 封装为 SSL/TLS 连接（HTTPS）
         context = ssl.create_default_context()
         context.check_hostname = False  # 跳过主机名验证（加速）
         context.verify_mode = ssl.CERT_NONE  # 跳过证书验证
-        self._ssock = context.wrap_socket(sock, server_hostname="h5api.m.goofish.com")
+        self._ssock = context.wrap_socket(sock, server_hostname=self._TARGET_IPV6[ip_index])
+        print("创建ipv6 socket 成功")
 
     # 发送秒杀请求
     def sent_seckill_request(self, api: str, params: dict, data: dict, cookies: dict):
@@ -64,9 +75,10 @@ class Ipv6Connect(Connect):
 
         # 构建请求体
         def structure_body():
+            timestamp = str(round(time.time() * 1000))
             query_str = '&'.join([f"{k}={v}" for k, v in
                                   self.createRequestParams(cookies=cookies, params=params, data=data,
-                                                           timestamp=str(round(time.time() * 1000))).items()])
+                                                           timestamp=timestamp).items()])
             path = f"{api}?{query_str}"
             # 对 data 进行 URL 编码
             data_encoded = urllib.parse.urlencode(data)
@@ -81,7 +93,7 @@ class Ipv6Connect(Connect):
                 "\r\n"
                 f"{data_encoded}"
             ).encode('utf-8')
-
+        # 发送请求
         self._ssock.sendall(structure_body())
 
 
