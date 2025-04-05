@@ -28,7 +28,7 @@ with webdriver.Chrome(options=chrome_options) as driver:
     request_config.isLogin(driver)
     # 等待 <i> 标签出现（最多等待 10 秒）
     try:
-        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, '//div[contains(text(), "一只九尾猫")]')))
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, '//div[contains(text(), "充满鲜花的世界到底在哪里")]')))
         print("已经登录")
         request_config.initCookie(driver=driver)
     except:
