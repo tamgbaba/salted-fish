@@ -1,27 +1,44 @@
 import socket
 import ssl
+import sys
 import time
 import urllib.parse
+import random
+import re
 
 
 class Connect:
+    # ipv 对应的端口号，一般是443 具体要看网站域名对应的端口
     _PORT = 443
+    # 请求头
     _headers: dict = {
-        'Host': 'h5api.m.goofish.com',  # 必须保留 Host 头
+        'Host': 'h5api.m.goofish.com',
         'Accept': 'application/json',
         'Content-Type': 'application/x-www-form-urlencoded',
+        'Connection': 'keep-alive',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36'
     }
+    # 请求的cookie值
     _cookie: str
-    _ssock = None
 
-    # 秒杀接口
+    _ssock = None
+    # 本次连接的真实ipv 地址
+    _IP: str
+    # 超时时间
+    timeout: int = 60
+
+    def __init__(self, scok):
+        self.start(sock=scok)
+
+    # 请求接口
     def sent_seckill_request(self):
         pass
 
     # 读取响应数据，单词读取仅返回 1400 需要大约是1.5kb
     def read_data(self) -> str:
         return self._ssock.recv(1400).decode('utf-8')
+        # return self._ssock.recv(1400).decode('utf-8')
+        # return self._ssock.recv(1400)
 
     # 暴露销毁类方法
     def close_connect(self):
@@ -31,14 +48,48 @@ class Connect:
     def dict_to_cookie_string(self, cookie_dict: dict):
         return '; '.join(f"{key}={value}" for key, value in cookie_dict.items()) + ';'
 
-    def heartbeat_monitor(self, sock):
-        # 发送心跳数据（示例：HTTP HEAD 请求）
-        print("发送心跳数据")
-        request = b"HEAD / HTTP/1.1\r\nHost: h5api.m.goofish.com\r\n\r\n"
-        sock.send(request)
-        response = sock.recv(1024)
-        print(f'心跳响应：{response}')
+    # 重新连接socket
+    def _reconnect(self):
+        """安全重建连接"""
+        if self._ssock:
+            try:
+                self._ssock.unwrap()  # 正确关闭SSL连接
+            except:
+                pass
+            self._ssock.close()
+        self.start(sock=self.connect())
 
+    # socket 连接
+    def connect(self):
+        pass
+
+    # ssl连接构建
+    def start(self, sock):
+        self._sock = sock
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # 允许地址复用
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)  # 启用Keep-Alive
+        sock.settimeout(15)  # 设置全局超时
+        # 3. 封装为 SSL/TLS 连接（HTTPS）
+        context = ssl.create_default_context()
+        context.check_hostname = False  # 跳过主机名验证（加速）
+        context.verify_mode = ssl.CERT_NONE  # 跳过证书验证
+        self._ssock = context.wrap_socket(sock, server_hostname=self._IP)
+        self._ssock.connect((self._IP, self._PORT))
+        print("创建ipv4 socket 成功")
+
+    # 连接状态是否还在
+    def _is_connected(self):
+        """检查SSL连接是否有效"""
+        try:
+            # 发送1字节空数据（不实际传输）
+            self._ssock.send(b'', socket.MSG_DONTWAIT)
+            print("ssl连接有效")
+            return True
+        except (ssl.SSLError, socket.error):
+            print('ssl连接不可用')
+            return False
+
+    # md5 加密 sign
     def createRequestParams(self, cookies: dict, params: dict, data: dict,
                             timestamp: str = str(round(time.time() * 1000))) -> dict:
         params['sign'] = CustomMD5.md5(
@@ -46,30 +97,83 @@ class Connect:
         params['t'] = timestamp
         return params
 
-    # 类销毁的时候需要关闭socket连接
+    # 类销毁的时候需要关闭socket连接同时推出程序
     def __del__(self):
-        self._ssock.close()
+        if self._ssock:
+            self._ssock.close()
+            sys.exit()
 
 
 class Ipv6Connect(Connect):
     # 目标 IPv6 地址和端口 (需提前通过CDN绕过获取真实IP)
     _TARGET_IPV6: list = ['2408:4001:f00::198', '2408:4001:f00::b9']
 
-    def __init__(self, ip_index: int = 0):
-        print("创建ipv6 socket 连接中......")
-        # 1. 创建 IPv6 TCP Socket
-        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-        # 2. 连接目标服务器
-        sock.settimeout(15)
-        sock.connect((self._TARGET_IPV6[ip_index], self._PORT, 0, 0))
-        # 3. 封装为 SSL/TLS 连接（HTTPS）
-        context = ssl.create_default_context()
-        context.check_hostname = False  # 跳过主机名验证（加速）
-        context.verify_mode = ssl.CERT_NONE  # 跳过证书验证
-        self._ssock = context.wrap_socket(sock, server_hostname=self._TARGET_IPV6[ip_index])
-        print("创建ipv6 socket 成功")
 
-    # 发送秒杀请求
+    def __init__(self, ip_index: int = 0):
+        super().__init__(self.connect(ip_index=ip_index))
+
+    def connect(self, ip_index: int = random.randint(0, 1)):
+        print("创建ipv4 socket 连接中......")
+        # 需要看当前对象是否已经绑定ip
+        if not '_IP' in dir(self):
+            self._IP = self._TARGET_IPV6[ip_index]
+        # 1. 创建 IPv4 TCP Socket
+        return socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    def sent_seckill_request(self, api: str, params: dict, data: dict, cookies: dict):
+        headers = self._headers
+        # 构建请求体
+        def structure_body():
+            timestamp = str(round(time.time() * 1000))
+            query_str = '&'.join([f"{k}={v}" for k, v in
+                                  self.createRequestParams(cookies=cookies, params=params, data=data,
+                                                           timestamp=timestamp).items()])
+            path = f"{api}?{query_str}"
+            # 对 data 进行 URL 编码
+            data_encoded = urllib.parse.urlencode(data)
+            content_length = len(data_encoded.encode('utf-8'))
+            return (
+                f"POST {path} HTTP/1.1\r\n"
+                f"Host: {headers['Host']}\r\n"
+                f"User-Agent: {headers['User-Agent']}\r\n"
+                f"Content-Type: {headers['Content-Type']}\r\n"
+                f"Connection: {headers['Connection']}\r\n"
+                f"Cookie: {self.dict_to_cookie_string(cookies)}\r\n"
+                f"Content-Length: {content_length}\r\n"
+                "\r\n"
+                f"{data_encoded}"
+            ).encode('utf-8')
+
+        # 发送请求
+        try:
+            self._ssock.sendall(structure_body())
+            log = self.read_data()
+            if not log:
+                self._reconnect()
+            else:
+                return re.findall(r'"ret":\s*\[(.*?)\]', log)[0].replace('"', '').split(',')
+        except (socket.error, socket.timeout) as e:
+            print(f"请求失败: {e}")
+            # 尝试重新连接
+            self._reconnect()
+            return '本次请求失败'
+
+
+class Ipv4Connect(Connect):
+    # 目标 IPv4 地址和端口 (需提前通过CDN绕过获取真实IP)
+    _TARGET_IPV4: list = ['59.82.58.67', '59.82.84.190']
+
+    def __init__(self, ip_index: int = 0):
+        super().__init__(self.connect(ip_index=ip_index))
+
+    def connect(self, ip_index: int = random.randint(0, 1)):
+        print("创建ipv4 socket 连接中......")
+        # 需要看当前对象是否已经绑定ip
+        if not '_IP' in dir(self):
+            self._IP = self._TARGET_IPV4[ip_index]
+        # 1. 创建 IPv4 TCP Socket
+        return socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
     def sent_seckill_request(self, api: str, params: dict, data: dict, cookies: dict):
         headers = self._headers
 
@@ -88,23 +192,27 @@ class Ipv6Connect(Connect):
                 f"Host: {headers['Host']}\r\n"
                 f"User-Agent: {headers['User-Agent']}\r\n"
                 f"Content-Type: {headers['Content-Type']}\r\n"
+                f"Connection: {headers['Connection']}\r\n"
                 f"Cookie: {self.dict_to_cookie_string(cookies)}\r\n"
                 f"Content-Length: {content_length}\r\n"
                 "\r\n"
                 f"{data_encoded}"
             ).encode('utf-8')
+
         # 发送请求
-        self._ssock.sendall(structure_body())
-
-
-class Ipv4Connect(Connect):
-    # 目标 IPv6 地址和端口 (需提前通过CDN绕过获取真实IP)
-    TARGET_IPV6: list = ['59.82.58.67', ]
-    PORT: int = 443
-
-    def _init_(self, ip_index: int = 0):
-        # 1. 创建 IPv4 TCP Socket
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            self._ssock.sendall(structure_body())
+            log = self.read_data()
+            if not log:
+                self._reconnect()
+            else:
+                print( re.findall(r'"ret":\s*\[(.*?)\]', log)[0].replace('"', '').split(','))
+                # return re.findall(r'"ret":\s*\[(.*?)\]', log)[0].replace('"', '').split(',')
+        except (socket.error, socket.timeout) as e:
+            print(f"请求失败: {e}")
+            # 尝试重新连接
+            self._reconnect()
+            return '本次请求失败'
 
 
 class CustomMD5:
